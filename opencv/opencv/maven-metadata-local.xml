@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>opencv</groupId>
+  <artifactId>opencv</artifactId>
+  <versioning>
+    <release>3.4.0-linux</release>
+    <versions>
+      <version>3.4.0-linux</version>
+    </versions>
+    <lastUpdated>20180730201915</lastUpdated>
+  </versioning>
+</metadata>
