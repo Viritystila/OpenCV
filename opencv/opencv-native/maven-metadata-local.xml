@@ -3,10 +3,11 @@
   <groupId>opencv</groupId>
   <artifactId>opencv-native</artifactId>
   <versioning>
-    <release>3.4.0-linux</release>
+    <release>4.0.0-a-linux</release>
     <versions>
       <version>3.4.0-linux</version>
+      <version>4.0.0-a-linux</version>
     </versions>
-    <lastUpdated>20180903204621</lastUpdated>
+    <lastUpdated>20180927154611</lastUpdated>
   </versioning>
 </metadata>
