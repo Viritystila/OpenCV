@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.viritystila</groupId>
+  <artifactId>opencv</artifactId>
+  <versioning>
+    <release>4.0.1-linux</release>
+    <versions>
+      <version>4.0.1-linux</version>
+    </versions>
+    <lastUpdated>20190211155429</lastUpdated>
+  </versioning>
+</metadata>
