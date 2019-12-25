@@ -3,10 +3,10 @@
   <groupId>org.viritystila</groupId>
   <artifactId>opencv</artifactId>
   <versioning>
-    <release>4.0.1-linux</release>
+    <release>4.2.0-linux</release>
     <versions>
-      <version>4.0.1-linux</version>
+      <version>4.2.0-linux</version>
     </versions>
-    <lastUpdated>20190211155429</lastUpdated>
+    <lastUpdated>20191225110153</lastUpdated>
   </versioning>
 </metadata>
