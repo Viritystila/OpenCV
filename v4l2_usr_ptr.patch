@@ -1,0 +1,303 @@
+diff --git a/modules/videoio/src/cap_v4l.cpp b/modules/videoio/src/cap_v4l.cpp
+index 5af2e677da..68ef4dc3b5 100644
+--- a/modules/videoio/src/cap_v4l.cpp
++++ b/modules/videoio/src/cap_v4l.cpp
+@@ -367,7 +367,8 @@ struct CvCaptureCAM_V4L CV_FINAL : public CvCapture
+     v4l2_format form;
+     v4l2_requestbuffers req;
+     v4l2_buf_type type;
+-
++    enum v4l2_memory memtype;
++    unsigned int userptr_offset;
+     timeval timestamp;
+ 
+     bool open(int _index);
+@@ -385,7 +386,7 @@ struct CvCaptureCAM_V4L CV_FINAL : public CvCapture
+     virtual ~CvCaptureCAM_V4L();
+     bool requestBuffers();
+     bool requestBuffers(unsigned int buffer_number);
+-    bool createBuffers();
++    bool createBuffers(unsigned int buffer_size);
+     void releaseBuffers();
+     bool initCapture();
+     bool streaming(bool startStream);
+@@ -423,6 +424,8 @@ CvCaptureCAM_V4L::CvCaptureCAM_V4L() :
+     fps(0), convert_rgb(0), frame_allocated(false), returnFrame(false),
+     channelNumber(-1), normalizePropRange(false),
+     type(V4L2_BUF_TYPE_VIDEO_CAPTURE),
++    memtype(V4L2_MEMORY_MMAP), //V4L2_MEMORY_MMAP V4L2_MEMORY_USERPTR
++    userptr_offset(0),
+     havePendingFrame(false)
+ {
+     frame = cvIplImage();
+@@ -744,7 +747,7 @@ bool CvCaptureCAM_V4L::initCapture()
+     if (!requestBuffers())
+         return false;
+ 
+-    if (!createBuffers()) {
++    if (!createBuffers(form.fmt.pix.sizeimage)) {
+         /* free capture, and returns an error code */
+         releaseBuffers();
+         return false;
+@@ -786,13 +789,15 @@ bool CvCaptureCAM_V4L::requestBuffers(unsigned int buffer_number)
+     req = v4l2_requestbuffers();
+     req.count = buffer_number;
+     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-    req.memory = V4L2_MEMORY_MMAP;
++    req.memory = memtype; //V4L2_MEMORY_MMAP;
+ 
+     if (!tryIoctl(VIDIOC_REQBUFS, &req)) {
+         int err = errno;
+         if (EINVAL == err)
+         {
+             CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): no support for memory mapping");
++            memtype=V4L2_MEMORY_MMAP;
++            requestBuffers(buffer_number);
+         }
+         else
+         {
+@@ -803,32 +808,47 @@ bool CvCaptureCAM_V4L::requestBuffers(unsigned int buffer_number)
+     v4l_buffersRequested = true;
+     return true;
+ }
+-
+-bool CvCaptureCAM_V4L::createBuffers()
++//User ptr from https://github.com/fastr/yavta/blob/master/yavta.c
++bool CvCaptureCAM_V4L::createBuffers(unsigned int buffer_size)
+ {
+     size_t maxLength = 0;
+     for (unsigned int n_buffers = 0; n_buffers < req.count; ++n_buffers) {
+         v4l2_buffer buf = v4l2_buffer();
+         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-        buf.memory = V4L2_MEMORY_MMAP;
++        buf.memory = memtype; //V4L2_MEMORY_MMAP;
+         buf.index = n_buffers;
+-
++        int page_size = getpagesize();
++        int ret = 0;
+         if (!tryIoctl(VIDIOC_QUERYBUF, &buf)) {
+             CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed VIDIOC_QUERYBUF: errno=" << errno << " (" << strerror(errno) << ")");
+             return false;
+         }
+-
+-        buffers[n_buffers].length = buf.length;
+-        buffers[n_buffers].start =
+-            mmap(NULL /* start anywhere */,
++		    switch (buf.memory) {
++          	case V4L2_MEMORY_MMAP:
++              buffers[n_buffers].length = buf.length;
++              buffers[n_buffers].start =
++              mmap(NULL /* start anywhere */,
+                 buf.length,
+                 PROT_READ /* required */,
+                 MAP_SHARED /* recommended */,
+                 deviceHandle, buf.m.offset);
+ 
+-        if (MAP_FAILED == buffers[n_buffers].start) {
+-            CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed mmap(" << buf.length << "): errno=" << errno << " (" << strerror(errno) << ")");
+-            return false;
++              if (MAP_FAILED == buffers[n_buffers].start) {
++                CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed mmap(" << buf.length << "): errno=" << errno << " (" << strerror(errno) << ")");
++                return false;
++              }
++                break;
++            case V4L2_MEMORY_USERPTR:
++              // ret = posix_memalign(&buffers[n_buffers].start, page_size, buf.length + userptr_offset);
++              // if (ret < 0) {
++        			// 	CV_LOG_WARNING(NULL,"Unable to allocate buffer" << n_buffers << " errno:" << ret);
++        			// 	return false;
++        			// }
++              //CV_LOG_WARNING(NULL, "Userptr:" << buffer_size);
++              //CV_LOG_WARNING(NULL, "Userptr:" << buf.length);
++              buffers[n_buffers].start = malloc(buffer_size);
++              buffers[n_buffers].length = buffer_size; //buf.length;
++              break;
+         }
+         maxLength = maxLength > buf.length ? maxLength : buf.length;
+     }
+@@ -837,6 +857,7 @@ bool CvCaptureCAM_V4L::createBuffers()
+         buffers[MAX_V4L_BUFFERS].length = maxLength;
+     }
+     return buffers[MAX_V4L_BUFFERS].start != 0;
++
+ }
+ 
+ /**
+@@ -903,6 +924,7 @@ bool CvCaptureCAM_V4L::open(const char* _deviceName)
+     frame_allocated = false;
+     deviceName = _deviceName;
+     returnFrame = true;
++    memtype=V4L2_MEMORY_USERPTR;//V4L2_MEMORY_MMAP;//
+     normalizePropRange = utils::getConfigurationParameterBool("OPENCV_VIDEOIO_V4L_RANGE_NORMALIZED", false);
+     channelNumber = -1;
+     bufferIndex = -1;
+@@ -919,8 +941,7 @@ bool CvCaptureCAM_V4L::read_frame_v4l2()
+ {
+     v4l2_buffer buf = v4l2_buffer();
+     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-    buf.memory = V4L2_MEMORY_MMAP;
+-
++    buf.memory = memtype; //V4L2_MEMORY_MMAP;
+     while (!tryIoctl(VIDIOC_DQBUF, &buf)) {
+         int err = errno;
+         if (err == EIO && !(buf.flags & (V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE))) {
+@@ -941,7 +962,6 @@ bool CvCaptureCAM_V4L::read_frame_v4l2()
+     //We shouldn't use this buffer in the queue while not retrieve frame from it.
+     buffers[buf.index].buffer = buf;
+     bufferIndex = buf.index;
+-
+     //set timestamp in capture struct to be timestamp of most recent frame
+     timestamp = buf.timestamp;
+     return true;
+@@ -1029,8 +1049,12 @@ bool CvCaptureCAM_V4L::grabFrame()
+             v4l2_buffer buf = v4l2_buffer();
+ 
+             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-            buf.memory = V4L2_MEMORY_MMAP;
++            buf.memory = memtype; //V4L2_MEMORY_MMAP;
+             buf.index = index;
++            if (memtype == V4L2_MEMORY_USERPTR){
++            		buf.m.userptr = (unsigned long)buffers[index].start;
++                buf.length = buffers[index].length;
++              }
+ 
+             if (!tryIoctl(VIDIOC_QBUF, &buf)) {
+                 CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed VIDIOC_QBUF (buffer=" << index << "): errno=" << errno << " (" << strerror(errno) << ")");
+@@ -1048,7 +1072,6 @@ bool CvCaptureCAM_V4L::grabFrame()
+         if (!read_frame_v4l2())
+             return false;
+ #endif
+-
+         /* preparation is ok */
+         FirstCapture = false;
+     }
+@@ -1605,8 +1628,15 @@ void CvCaptureCAM_V4L::convertToRgb(const Buffer &currentBuffer)
+         break;
+     case V4L2_PIX_FMT_BGR24:
+     default:
+-        memcpy((char *)frame.imageData, (char *)currentBuffer.start,
+-               std::min(frame.imageSize, (int)currentBuffer.buffer.bytesused));
++        switch (memtype) {
++          case V4L2_MEMORY_MMAP:
++            memcpy((char *)frame.imageData, (char *)currentBuffer.start,
++                  std::min(frame.imageSize, (int)currentBuffer.buffer.bytesused));
++            break;
++          case V4L2_MEMORY_USERPTR:
++            frame.imageData=(char *)currentBuffer.start;
++            break;
++        }
+         break;
+     }
+ }
+@@ -2047,15 +2077,21 @@ void CvCaptureCAM_V4L::releaseBuffers()
+     if (!v4l_buffersRequested)
+         return;
+     v4l_buffersRequested = false;
+-
+-    for (unsigned int n_buffers = 0; n_buffers < MAX_V4L_BUFFERS; ++n_buffers) {
+-        if (buffers[n_buffers].start) {
+-            if (-1 == munmap(buffers[n_buffers].start, buffers[n_buffers].length)) {
+-                CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed munmap(): errno=" << errno << " (" << strerror(errno) << ")");
+-            } else {
+-                buffers[n_buffers].start = 0;
+-            }
+-        }
++    if (memtype == V4L2_MEMORY_MMAP){
++      for (unsigned int n_buffers = 0; n_buffers < MAX_V4L_BUFFERS; ++n_buffers) {
++          if (buffers[n_buffers].start) {
++              if (-1 == munmap(buffers[n_buffers].start, buffers[n_buffers].length)) {
++                  CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): failed munmap(): errno=" << errno << " (" << strerror(errno) << ")");
++              } else {
++                  buffers[n_buffers].start = 0;
++              }
++          }
++      }
++    }
++    if(memtype == V4L2_MEMORY_USERPTR){
++      for (unsigned int n_buffers = 0; n_buffers < MAX_V4L_BUFFERS; ++n_buffers){
++        free(buffers[n_buffers].start);
++      }
+     }
+     //Applications can call ioctl VIDIOC_REQBUFS again to change the number of buffers,
+     // however this cannot succeed when any buffers are still mapped. A count value of zero
+@@ -2109,10 +2145,20 @@ IplImage *CvCaptureCAM_V4L::retrieveFrame(int)
+         CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): buffer input size=" << currentBuffer.buffer.bytesused);
+         if (frame.imageSize != (int)currentBuffer.buffer.bytesused)
+             v4l2_create_frame();
+-
+-        frame.imageData = (char *)buffers[MAX_V4L_BUFFERS].start;
+-        memcpy(buffers[MAX_V4L_BUFFERS].start, currentBuffer.start,
++        switch (memtype) {
++          case V4L2_MEMORY_MMAP:
++          frame.imageData = (char *)buffers[MAX_V4L_BUFFERS].start;
++          // if (memtype == V4L2_MEMORY_USERPTR){
++          //     buf.m.userptr = (unsigned long)buffers[index].start;
++          //     buf.length = buffers[index].length;
++          //   }
++          memcpy(buffers[MAX_V4L_BUFFERS].start, currentBuffer.start,
+                std::min(buffers[MAX_V4L_BUFFERS].length, (size_t)currentBuffer.buffer.bytesused));
++          break;
++        case V4L2_MEMORY_USERPTR:
++          frame.imageData= (char *)buffers[MAX_V4L_BUFFERS].start;
++          break;
++        }
+     }
+     //Revert buffer to the queue
+     if (!tryIoctl(VIDIOC_QBUF, &buffers[bufferIndex].buffer))
+diff --git a/samples/java/ant/src/SimpleSample.java b/samples/java/ant/src/SimpleSample.java
+index a0375c5624..5f4b67b556 100644
+--- a/samples/java/ant/src/SimpleSample.java
++++ b/samples/java/ant/src/SimpleSample.java
+@@ -2,12 +2,21 @@ import org.opencv.core.Core;
+ import org.opencv.core.Mat;
+ import org.opencv.core.CvType;
+ import org.opencv.core.Scalar;
++import org.opencv.videoio.VideoCapture;
++import org.opencv.videoio.Videoio;
++import java.awt.image.BufferedImage;
++import org.opencv.core.Mat;
++
++import java.awt.image.BufferedImage;
++import java.awt.image.DataBufferByte;
++import java.awt.image.WritableRaster;
+ 
++import java.util.concurrent.TimeUnit;
+ class SimpleSample {
+ 
+   static{ System.loadLibrary(Core.NATIVE_LIBRARY_NAME); }
+ 
+-  public static void main(String[] args) {
++  public static void main(String[] args)  throws InterruptedException {
+     System.out.println("Welcome to OpenCV " + Core.VERSION);
+     Mat m = new Mat(5, 10, CvType.CV_8UC1, new Scalar(0));
+     System.out.println("OpenCV Mat: " + m);
+@@ -15,7 +24,28 @@ class SimpleSample {
+     mr1.setTo(new Scalar(1));
+     Mat mc5 = m.col(5);
+     mc5.setTo(new Scalar(5));
+-    System.out.println("OpenCV Mat data:\n" + m.dump());
++    //System.out.println("OpenCV Mat data:\n" + m.dump());
++    VideoCapture cap;
++    final Mat capImg = new Mat();
++    cap = new VideoCapture();
++    System.out.println("OpenCV empty Mat data:\n" + capImg.dump());
++
++    cap.open(1, org.opencv.videoio.Videoio.CAP_V4L2);
++    System.out.println("OpenCV still empty Mat data:\n" + capImg.dump());
++    System.out.println("Is camera on:\n" + cap.isOpened());
++
++    //cap.read(capImg);
++    cap.grab();
++    try {
++    Thread.sleep(2000);
++    } catch (InterruptedException e) {
++        System.out.println(e);}
++    System.out.println("OpenCV grabbed Mat data:\n" + capImg);
++    System.out.println(cap.retrieve(capImg));
++    //mat2Img.getImage(mat2Img.mat);
++    cap.release();
++    System.out.println("OpenCV Mat data:\n" + capImg);
++
+   }
+ 
+ }
