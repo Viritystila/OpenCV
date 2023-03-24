@@ -4,6 +4,7 @@
   <artifactId>opencv-native</artifactId>
   <versioning>
     <release>4.4.0-linux</release>
+    <version>4.4.0-linux</version>
     <versions>
       <version>4.4.0-linux</version>
     </versions>
