@@ -3,11 +3,11 @@
   <groupId>org.viritystila</groupId>
   <artifactId>opencv-native</artifactId>
   <versioning>
-    <release>4.4.0-linux</release>
-    <version>4.4.0-linux</version>
+    <release>4.7.0-linux</release>
+    <version>4.7.0-linux</version>
     <versions>
-      <version>4.4.0-linux</version>
+      <version>4.7.0-linux</version>
     </versions>
-    <lastUpdated>20230324205847</lastUpdated>
+    <lastUpdated>20230327205248</lastUpdated>
   </versioning>
 </metadata>
