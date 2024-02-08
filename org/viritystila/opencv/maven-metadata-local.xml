@@ -2,12 +2,12 @@
 <metadata>
   <groupId>org.viritystila</groupId>
   <artifactId>opencv</artifactId>
-  <version>4.7.0-linux</version>
   <versioning>
-    <release>4.7.0-linux</release>
+    <release>4.9.0-linux</release>
     <versions>
       <version>4.7.0-linux</version>
+      <version>4.9.0-linux</version>
     </versions>
-    <lastUpdated>20230327205230</lastUpdated>
+    <lastUpdated>20240208215856</lastUpdated>
   </versioning>
 </metadata>
